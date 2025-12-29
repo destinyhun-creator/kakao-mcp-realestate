@@ -69,4 +69,5 @@ if __name__ == "__main__":
     print(f"SafeMove MCP Server Starting... (Port: {port})")
     
     # 0.0.0.0 호스트로 설정하여 외부 인터넷(카카오)에서 접속 가능하게 합니다.
-    mcp.run(transport="sse", host="0.0.0.0", port=port)
+    mcp.run(transport="sse", port=server_port)
+
