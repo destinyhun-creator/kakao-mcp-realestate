@@ -8,7 +8,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 
 # -------------------------------------------------------------------------
-# 1. MCP 서버 및 도구 정의
+# 1. MCP 서버 및 도구 정의 (부동산 기능)
 # -------------------------------------------------------------------------
 mcp = FastMCP("SafeMove Real Estate Agent")
 
@@ -45,39 +45,48 @@ def get_safemove_checklist(contract_type: str) -> str:
     }, ensure_ascii=False)
 
 # -------------------------------------------------------------------------
-# 2. 서버 및 보안(CORS) 설정
+# 2. 서버 구동 (안전장치 포함 - 절대 죽지 않는 로직)
 # -------------------------------------------------------------------------
-
-# (1) FastMCP를 Starlette 앱으로 변환 (requirements의 최신 버전 필수)
-sse_app = mcp.get_asgi_app()
-
-async def health_check(request):
-    """서버 상태 확인용 페이지"""
-    return JSONResponse({
-        "status": "online", 
-        "message": "SafeMove Agent is Running 🍌. Connect via /sse"
-    })
-
-# (2) 보안 미들웨어: 모든 외부 접속 허용 (CORS)
-middleware = [
-    Middleware(
-        CORSMiddleware,
-        allow_origins=["*"],     # 모든 도메인 접속 허용
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-]
-
-# (3) 앱 통합
-app = Starlette(
-    routes=[
-        Route("/", health_check),   # 기본 주소 접속 시 상태 메시지
-        Mount("/sse", sse_app),     # /sse 주소로 MCP 연결
-    ],
-    middleware=middleware
-)
-
 if __name__ == "__main__":
-    print("🚀 SafeMove Agent Server Running...")
-    # 외부 접속 허용 (0.0.0.0)
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    print("🚀 SafeMove Agent Server Starting...")
+    
+    try:
+        # [시도 1] 고급 모드: 웹 페이지 + CORS(보안 해제) + MCP
+        # 라이브러리 버전이 낮으면 여기서 에러가 나고 아래 except로 넘어갑니다.
+        sse_app = mcp.get_asgi_app() 
+
+        async def health_check(request):
+            return JSONResponse({
+                "status": "online", 
+                "message": "SafeMove Agent is Running 🍌. Connect via /sse"
+            })
+
+        # 모든 외부 접속 허용 (CORS)
+        middleware = [
+            Middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+        ]
+
+        app = Starlette(
+            routes=[
+                Route("/", health_check),
+                Mount("/sse", sse_app),
+            ],
+            middleware=middleware
+        )
+        
+        print("✅ 고급 모드(CORS Open)로 실행합니다.")
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    except AttributeError:
+        # [시도 2] 기본 모드 (안전장치)
+        # FastMCP 버전이 낮아서 고급 모드가 안 될 때 실행됩니다.
+        print("\n" + "="*50)
+        print("⚠️ [경고] FastMCP 구버전 감지됨. 기본 모드로 전환합니다.")
+        print("⚠️ CORS/웹 기능은 제한되지만, 서버는 정상 작동합니다.")
+        print("="*50 + "\n")
+        
+        # 기본 모드로 실행 (무조건 켜짐)
+        mcp.run(transport="sse", port=8000, host="0.0.0.0")
+
+    except Exception as e:
+        print(f"❌ 예기치 못한 오류 발생: {e}")
