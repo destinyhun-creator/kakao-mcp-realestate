@@ -1,100 +1,34 @@
-from fastmcp import FastMCP
-import os
+from flask import Flask, Response
+import time
 
-# -------------------------------------------------
-# MCP 서버 생성 (description 절대 X)
-# -------------------------------------------------
-mcp = FastMCP(
-    name="SafeMove Real Estate Agent",
-    version="1.0.0"
-)
+app = Flask(__name__)
 
-# -------------------------------------------------
-# Tool 1: 부동산 위험 분석
-# -------------------------------------------------
-@mcp.tool()
-async def analyze_registry_risk(address: str, owner_name: str) -> dict:
-    """
-    다방 매물 + 등기부등본 + 건축물대장 기반
-    전세사기 / 깡통전세 위험 분석 AI Agent
-    (공공데이터 미연동 샘플)
-    """
+@app.route("/")
+def home():
+    return "Server is running"
 
-    if "빌라" in address or "망원" in address:
-        return {
-            "status": "WARNING",
-            "risk_score": 85,
-            "reason": "선순위 근저당 비율 과다",
-            "checks": {
-                "registry": "근저당 설정 있음",
-                "ownership": "최근 소유권 이전",
-                "building": "정상"
-            },
-            "action": [
-                "전세보증금 반환보증 가입",
-                "특약: 잔금일까지 권리변동 금지"
-            ]
+@app.route("/sse")
+def sse():
+    def event_stream():
+        # 1️⃣ 첫 메시지
+        yield "data: SSE connection established\n\n"
+        time.sleep(1)
+
+        # 2️⃣ 실제 보낼 데이터
+        yield "data: hello from server\n\n"
+        time.sleep(1)
+
+        # 3️⃣ 🔴 반드시 종료 이벤트 보내기
+        yield "event: end\ndata: done\n\n"
+
+    return Response(
+        event_stream(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive"
         }
-
-    return {
-        "status": "SAFE",
-        "risk_score": 10,
-        "checks": {
-            "registry": "근저당 없음",
-            "ownership": "소유자 일치",
-            "building": "정상"
-        },
-        "action": [
-            "확정일자 및 전입신고"
-        ]
-    }
-
-# -------------------------------------------------
-# Tool 2: 계약 체크리스트
-# -------------------------------------------------
-@mcp.tool()
-def safemove_checklist(contract_type: str) -> dict:
-    """
-    전·월세 계약 필수 체크리스트 + 금융 연계
-    """
-
-    base = [
-        "공인중개사 등록 여부",
-        "임대인 신분증 확인",
-        "전자계약 가능 여부"
-    ]
-
-    if contract_type == "전세":
-        return {
-            "type": "전세",
-            "checklist": base + [
-                "전세보증금 반환보증",
-                "국세·지방세 완납 증명",
-                "특약 OCR 검증"
-            ],
-            "finance": [
-                "카카오뱅크 HF 전월세 대출",
-                "카카오뱅크 청년 전월세 대출"
-            ]
-        }
-
-    return {
-        "type": "월세",
-        "checklist": base + [
-            "관리비 포함 여부",
-            "소액임차인 최우선변제"
-        ],
-        "finance": [
-            "카카오뱅크 월세보증금 대출"
-        ]
-    }
-
-# -------------------------------------------------
-# 서버 실행 (FastMCP가 uvicorn 포함)
-# -------------------------------------------------
-if __name__ == "__main__":
-    mcp.run(
-        transport="sse",
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8000))
     )
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
