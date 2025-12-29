@@ -1,5 +1,5 @@
 fastmcp>=0.4.1
-uvicorn
-starlette
-httpx
-python-multipart
+uvicorn>=0.20.0
+starlette>=0.27.0
+httpx>=0.24.0
+python-multipart>=0.0.6
