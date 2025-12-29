@@ -1,11 +1,7 @@
 import json
-import uvicorn
+# Starlette 관련 복잡한 설정은 라이브러리 호환성 문제로 제거하고, 
+# 가장 안정적인 FastMCP 기본 실행 방식으로 전환합니다.
 from fastmcp import FastMCP
-from starlette.applications import Starlette
-from starlette.responses import HTMLResponse
-from starlette.routing import Route, Mount
-from starlette.middleware import Middleware
-from starlette.middleware.cors import CORSMiddleware
 
 # -------------------------------------------------------------------------
 # 1. MCP 서버 및 도구 정의 (기능 구현부)
@@ -82,115 +78,11 @@ def get_safemove_checklist(contract_type: str) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 # -------------------------------------------------------------------------
-# 2. 웹 브라우저 접속자를 위한 안내 페이지 (HTML)
-# -------------------------------------------------------------------------
-async def homepage(request):
-    """
-    심사위원이나 사용자가 브라우저로 접속했을 때 보여줄 안내 페이지입니다.
-    """
-    html_content = """
-    <!DOCTYPE html>
-    <html lang="ko">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>SafeMove - 카카오 AI 부동산 에이전트</title>
-        <style>
-            body { 
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
-                background-color: #FEE500; 
-                color: #191919; 
-                text-align: center; 
-                padding: 40px; 
-                margin: 0;
-            }
-            .container { 
-                background: white; 
-                max-width: 600px; 
-                margin: 0 auto; 
-                padding: 40px; 
-                border-radius: 20px; 
-                box-shadow: 0 10px 25px rgba(0,0,0,0.1); 
-            }
-            h1 { font-size: 28px; margin-bottom: 10px; color: #3C1E1E; }
-            .icon { font-size: 80px; margin-bottom: 20px; }
-            .badge { 
-                background: #3C1E1E; 
-                color: #FEE500; 
-                padding: 5px 12px; 
-                border-radius: 20px; 
-                font-size: 14px; 
-                font-weight: bold; 
-            }
-            .code-box { 
-                background: #f4f4f4; 
-                padding: 15px; 
-                border-radius: 10px; 
-                font-family: monospace; 
-                word-break: break-all; 
-                color: #d63031; 
-                margin: 20px 0;
-                font-weight: bold;
-            }
-            .desc { color: #555; line-height: 1.6; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="icon">🏠🍌</div>
-            <span class="badge">SafeMove Agent</span>
-            <h1>카카오 AI 부동산 보안관</h1>
-            <p class="desc">
-                반갑습니다! 저는 <b>SafeMove MCP 서버</b>입니다.<br>
-                다방 매물 분석부터 카카오뱅크 대출 추천까지<br>
-                안전한 이사를 책임집니다.
-            </p>
-            <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;">
-            <h3>🔌 연결 방법 (Endpoint)</h3>
-            <p class="desc">Claude Desktop 설정에 아래 주소를 등록하세요.</p>
-            <div class="code-box">
-                https://web-production-e7772.up.railway.app/sse
-            </div>
-            <p class="desc" style="font-size: 14px; color: #888;">
-                * 상태: 🟢 정상 작동 중 (CORS Open)
-            </p>
-        </div>
-    </body>
-    </html>
-    """
-    return HTMLResponse(html_content)
-
-# -------------------------------------------------------------------------
-# 3. Starlette 앱 설정 (CORS 보안 해제 및 라우팅)
-# -------------------------------------------------------------------------
-
-# (1) MCP 기능을 ASGI 앱으로 변환
-sse_app = mcp.get_asgi_app()
-
-# (2) 보안 미들웨어 설정 (외부 접속 허용)
-middleware = [
-    Middleware(
-        CORSMiddleware,
-        allow_origins=["*"],     # 모든 도메인 허용
-        allow_credentials=True,
-        allow_methods=["*"],     # 모든 메서드 허용
-        allow_headers=["*"],     # 모든 헤더 허용
-    )
-]
-
-# (3) 메인 앱 생성 및 경로 연결
-app = Starlette(
-    routes=[
-        Route("/", homepage),    # 기본 주소: 안내 페이지
-        Mount("/sse", sse_app),  # /sse 주소: MCP 연결
-    ],
-    middleware=middleware
-)
-
-# -------------------------------------------------------------------------
-# 4. 서버 구동
+# 2. 서버 구동 (안정적인 기본 모드)
 # -------------------------------------------------------------------------
 if __name__ == "__main__":
     print("🚀 SafeMove Agent Server Running...")
-    # Starlette 앱을 uvicorn으로 실행
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    print("⚠️ 안내: 브라우저 접속 시 'event: endpoint' 텍스트가 뜨는 것은 정상입니다.")
+    # 오류가 났던 get_asgi_app()을 제거하고, mcp.run()으로 복귀합니다.
+    # 이것이 가장 확실하게 서버를 띄우는 방법입니다.
+    mcp.run(transport="sse", port=8000, host="0.0.0.0")
