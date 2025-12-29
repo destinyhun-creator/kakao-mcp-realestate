@@ -4,10 +4,9 @@ import textwrap
 import os
 
 # 1. MCP 서버 초기화
-# 서버 인스턴스를 생성합니다.
 mcp = FastMCP("SafeMove_RealEstate_Agent")
 
-# --- [Resource] 표준 전세계약서 지식 베이스 (AI 참고 데이터) ---
+# --- [Resource] 표준 전세계약서 지식 베이스 ---
 STANDARD_CONTRACT_KNOWLEDGE = """
 [표준 임대차 계약서 필수 체크리스트]
 1. 대항력 유지: 임차인이 입주하고 전입신고를 마칠 때까지 저당권 설정을 금지함.
@@ -19,13 +18,13 @@ STANDARD_CONTRACT_KNOWLEDGE = """
 # --- [Tool 1] 다방 매물 검색 ---
 @mcp.tool()
 def search_dabang_properties(location: str, budget_max: int) -> str:
-    """사용자의 요청에 맞는 다방(Dabang) 매물을 검색합니다."""
+    """Search for listings in the Dabang database based on location and budget."""
     return f"🏠 동훈님의 조건에 딱 맞는 [{location}] 지역 매물을 다방 데이터에서 찾아보았습니다. \n1. 다방타워(전세 2.8억) - 역세권 안심 매물\n2. 카카오빌(전세 3억) - 신축, HUG 가입 협의 가능"
 
 # --- [Tool 2] HUG 보증보험 및 법률 안전도 체크 ---
 @mcp.tool()
 def check_hug_safety(address: str) -> str:
-    """주소지 기반 HUG 보증 보험 가입 가능 여부를 법률적으로 분석합니다."""
+    """Analyze the registry and building ledger to check HUG insurance eligibility."""
     if "판교" in address:
         return f"✅ 해당 매물({address}) 분석 결과:\n근저당 비중이 낮아 HUG 전세보증금 반환보증 가입이 가능할 것으로 보입니다. 안심하세요! 😊"
     return f"⚠️ 해당 매물({address}) 분석 결과:\n권리관계가 다소 복잡합니다. 전문가와 함께 등기부등본을 다시 확인하시는 것을 권장드립니다."
@@ -33,7 +32,7 @@ def check_hug_safety(address: str) -> str:
 # --- [Tool 3] 계약서 RAG 분석 (독소 조항 식별) ---
 @mcp.tool()
 def analyze_contract_with_rag(user_contract_text: str) -> str:
-    """사용자의 계약서와 표준 양식을 비교하여 리스크를 찾아냅니다."""
+    """Compare the provided contract text with the standard form to find risky clauses."""
     toxic_points = []
     if "대항력 포기" in user_contract_text or "저당권 설정" in user_contract_text:
         toxic_points.append("- '전입신고 당일 저당권 설정 허용' 조항은 임차인 보호에 매우 취약합니다.")
@@ -47,7 +46,7 @@ def analyze_contract_with_rag(user_contract_text: str) -> str:
 # --- [Tool 4] 카카오 비즈니스 연동 (금융 & 이사) ---
 @mcp.tool()
 def connect_kakao_services(property_price: int) -> str:
-    """카카오뱅크 대출 한도 및 카카오 T 이사 서비스를 연계합니다."""
+    """Link Kakao Bank loan limits and Kakao T moving services."""
     loan_limit = int(property_price * 0.8)
     return textwrap.dedent(f"""
         🏠 안심 이사 매니저가 제안드리는 마지막 단계입니다!
@@ -59,15 +58,13 @@ def connect_kakao_services(property_price: int) -> str:
         [카카오뱅크 대출 심사 바로가기] | [카카오 T 이사 예약하기]
     """)
 
-# --- 서버 실행부 (Railway 빌드 에러 방지용 설정) ---
+# --- 서버 실행부 (Railway 환경에 최적화) ---
 if __name__ == "__main__":
-    # 환경 변수를 메인 실행부 안으로 이동시켜 빌드 시점의 에러를 방지합니다.
-    # Railway의 Variables 탭에 MCP_SERVER_TOKEN이 설정되어 있어야 합니다.
-    token = os.environ.get("MCP_SERVER_TOKEN", "kakao_mcp_secret_2024")
-    port = int(os.environ.get("PORT", 8000))
+    # Railway의 환경 변수(Variables) 탭에 등록된 값을 가져옵니다.
+    access_token = os.environ.get("APP_AUTH_KEY", "kakao_mcp_secret_2024")
+    port_number = int(os.environ.get("PORT", 8000))
     
-    print(f"SafeMove MCP Server Starting... (Port: {port})")
+    print(f"SafeMove MCP Server Starting... (Port: {port_number})")
     
-    # 0.0.0.0 호스트로 설정하여 외부 인터넷(카카오)에서 접속 가능하게 합니다.
-    mcp.run(transport="sse", port=server_port)
-
+    # 72번 줄 수정: host 인자를 제거하고 포트 번호를 정확히 전달합니다.
+    mcp.run(transport="sse", port=port_number)
