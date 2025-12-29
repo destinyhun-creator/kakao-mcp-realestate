@@ -8,13 +8,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # =================================================
-# 1. MCP 서버 정의 (FastMCP - SSE 모드용)
+# 1. MCP 서버 정의 (수정됨)
 # =================================================
-mcp = FastMCP(
-    name="SafeMove Real Estate Agent",
-    description="전세사기 예방, 계약서 분석, 대출/이사 추천을 수행하는 AI 에이전트",
-    port=8000
-)
+# [수정] description과 port 인자를 제거했습니다. (초기화 시 지원하지 않음)
+mcp = FastMCP("SafeMove Real Estate Agent")
 
 # =================================================
 # 2. 헬퍼 함수: LLM 호출 (OpenAI Only)
@@ -171,7 +168,6 @@ async def recommend_loan_and_moving(
 # =================================================
 # 서버 실행 (SSE Transport)
 # =================================================
-# FastMCP는 기본적으로 uvicorn을 사용하여 SSE 서버를 띄웁니다.
 if __name__ == "__main__":
-    # Railway 등 클라우드 환경에서는 호스트 0.0.0.0이 필수입니다.
-    mcp.run(transport="sse")
+    # [수정] 포트 설정은 run 메서드에서 처리합니다.
+    mcp.run(transport="sse", host="0.0.0.0", port=8000)
