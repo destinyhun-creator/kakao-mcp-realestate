@@ -67,7 +67,7 @@ if __name__ == "__main__":
     
     print(f"🚀 SafeMove MCP 서버가 구동됩니다. (Target Port: {port_env})")
     
-    # 2. 핵심 수정: mcp.run() 대신 uvicorn을 직접 사용하여 Starlette 앱을 실행합니다.
+    # 2. 핵심 수정: mcp.app 대신 mcp.get_starlette_app()을 사용하여 uvicorn에 전달합니다.
     # host를 "0.0.0.0"으로 설정해야 Railway 외부 주소와 연결됩니다.
-    # mcp.run()이 내부적으로 사용하는 Starlette 앱은 mcp.app으로 접근 가능합니다.
-    uvicorn.run(mcp.app, host="0.0.0.0", port=port_env)
+    starlette_app = mcp.get_starlette_app()
+    uvicorn.run(starlette_app, host="0.0.0.0", port=port_env)
