@@ -1,204 +1,72 @@
-import asyncio
 import os
 import json
-import logging
-import httpx
-from dotenv import load_dotenv
+from fastmcp import FastMCP
 
-# [핵심] FastMCP(웹서버 방식)가 아닌 표준 Server(Stdio 방식)를 사용합니다.
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-import mcp.types as types
-
-# .env 파일 로드 (API 키 관리)
-load_dotenv()
-
-# 1. 서버 초기화
-app = Server("SafeMove-RealEstate-Agent")
-
-# [중요] 로깅 설정
-# Stdio 모드에서는 화면에 글씨를 출력(print)하면 연결이 끊깁니다.
-# 따라서 반드시 파일로 로그를 남겨서 확인해야 합니다.
-logging.basicConfig(
-    filename='mcp_server.log', 
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+# MCP 서버 생성
+mcp = FastMCP(
+    name="SafeMove Real Estate Agent",
+    description="부동산 계약 리스크 분석 및 전세사기 예방 AI 에이전트"
 )
-logger = logging.getLogger("mcp_server")
 
-# =================================================
-# 공통: LLM 상담 (OpenAI / Gemini)
-# =================================================
-async def call_llm(prompt: str) -> str:
-    """API 키 유무에 따라 실제 LLM 호출 또는 더미 응답 반환"""
-    openai_key = os.environ.get("OPENAI_API_KEY")
-    gemini_key = os.environ.get("GEMINI_API_KEY")
+# ===============================
+# Tool 1: 등기부 위험 분석
+# ===============================
+@mcp.tool()
+def analyze_registry_risk(address: str, owner_name: str) -> str:
+    if "빌라" in address or "망원" in address:
+        result = {
+            "status": "WARNING",
+            "risk_score": 85,
+            "reason": "선순위 근저당 설정 가능성 높음",
+            "advice": "등기부등본 을구를 반드시 확인하세요."
+        }
+    else:
+        result = {
+            "status": "SAFE",
+            "risk_score": 10,
+            "advice": "현재 정보 기준으로 큰 위험은 없어 보입니다."
+        }
 
-    try:
-        if openai_key:
-            async with httpx.AsyncClient() as client:
-                res = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {openai_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "gpt-4o-mini",
-                        "messages": [
-                            {"role": "system", "content": "너는 부동산 계약 리스크 분석 전문가다. 간결하고 정확하게 답변해라."},
-                            {"role": "user", "content": prompt},
-                        ],
-                    },
-                    timeout=15,
-                )
-                res.raise_for_status()
-                return res.json()["choices"][0]["message"]["content"]
-        
-        # Gemini API 로직 (필요 시 추가)
-        # elif gemini_key: ...
-        
-    except Exception as e:
-        logger.error(f"LLM 호출 실패: {e}")
-        return f"AI 분석 중 오류가 발생했습니다: {str(e)}"
+    return json.dumps(result, ensure_ascii=False, indent=2)
 
-    # 키가 없을 때 (해커톤 데모용 응답)
-    return (
-        "현재 API 키가 설정되지 않아 AI 분석을 수행할 수 없습니다. "
-        "하지만 입력하신 정보를 볼 때, 계약 전 반드시 등기부등본의 '을구'를 확인하시기 바랍니다."
-    )
+# ===============================
+# Tool 2: 계약 체크리스트
+# ===============================
+@mcp.tool()
+def safemove_checklist(contract_type: str) -> str:
+    base = ["공인중개사 등록 확인", "신분증 진위 확인"]
 
-# =================================================
-# Tool 정의 (Player에게 기능 목록 제공)
-# =================================================
-@app.list_tools()
-async def list_tools() -> list[types.Tool]:
-    logger.info("Client가 도구 목록(list_tools)을 요청했습니다.")
-    return [
-        types.Tool(
-            name="analyze_registry_risk",
-            description="주소와 소유자명을 기반으로 전세사기/깡통전세 위험을 분석합니다.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "address": {"type": "string", "description": "부동산 주소"},
-                    "owner_name": {"type": "string", "description": "소유자 이름"},
-                },
-                "required": ["address", "owner_name"],
-            },
-        ),
-        types.Tool(
-            name="safemove_checklist",
-            description="전세 또는 월세 계약 시 확인해야 할 필수 체크리스트를 제공합니다.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "contract_type": {"type": "string", "enum": ["전세", "월세"], "description": "계약 형태"}
-                },
-                "required": ["contract_type"],
-            },
-        ),
-        types.Tool(
-            name="real_estate_chat",
-            description="부동산 관련 자유 질문에 대해 AI 전문가가 답변합니다.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "question": {"type": "string", "description": "부동산 관련 질문"}
-                },
-                "required": ["question"],
-            },
-        ),
-    ]
+    if contract_type == "전세":
+        checklist = base + [
+            "등기부등본 을구 확인",
+            "전세보증금 반환보증 가입 여부"
+        ]
+    else:
+        checklist = base + [
+            "관리비 체납 여부",
+            "최우선변제금 확인"
+        ]
 
-# =================================================
-# Tool 실행 로직 (실제 기능 수행)
-# =================================================
-@app.call_tool()
-async def call_tool(name: str, arguments: dict | None) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-    logger.info(f"도구 실행 요청: {name}, 인자: {arguments}")
-    if not arguments:
-        arguments = {}
+    return json.dumps({
+        "contract_type": contract_type,
+        "checklist": checklist
+    }, ensure_ascii=False, indent=2)
 
-    try:
-        # 1. 위험 분석 도구
-        if name == "analyze_registry_risk":
-            address = arguments.get("address", "")
-            owner_name = arguments.get("owner_name", "")
-            
-            # 룰 기반 분석 (예시 로직)
-            if "빌라" in address or "망원" in address:
-                result = {
-                    "status": "WARNING",
-                    "risk_score": 85,
-                    "reason": "선순위 근저당 설정 가능성 높음",
-                    "checks": {"registry": "확인 필요", "ownership": "최근 변경"}
-                }
-            else:
-                result = {
-                    "status": "SAFE",
-                    "risk_score": 10,
-                    "checks": {"registry": "안전", "ownership": "일치"}
-                }
+# ===============================
+# Tool 3: 자유 상담
+# ===============================
+@mcp.tool()
+def real_estate_chat(question: str) -> str:
+    return f"부동산 전문가 답변: {question}에 대해 계약 전 리스크를 꼼꼼히 확인하세요."
 
-            # AI 코멘트
-            ai_advice = await call_llm(
-                f"주소: {address}, 소유자: {owner_name}. 이 부동산의 전세 리스크를 초보자에게 설명하듯 짧게 요약해줘."
-            )
-            result["ai_advice"] = ai_advice
-            
-            return [types.TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
-
-        # 2. 체크리스트 도구
-        elif name == "safemove_checklist":
-            ctype = arguments.get("contract_type", "전세")
-            base_list = ["공인중개사 등록 확인", "신분증 진위 확인"]
-            
-            if ctype == "전세":
-                final_list = base_list + ["전세보증금 반환보증 가입", "국세/지방세 완납증명"]
-            else:
-                final_list = base_list + ["최우선변제금 확인", "관리비 내역 확인"]
-                
-            return [types.TextContent(type="text", text=json.dumps({
-                "type": ctype,
-                "checklist": final_list
-            }, ensure_ascii=False, indent=2))]
-
-        # 3. 부동산 상담 도구
-        elif name == "real_estate_chat":
-            question = arguments.get("question", "")
-            answer = await call_llm(f"질문: {question}\n부동산 전문가로서 답변해줘.")
-            
-            return [types.TextContent(type="text", text=answer)]
-
-        else:
-            raise ValueError(f"Unknown tool: {name}")
-
-    except Exception as e:
-        logger.error(f"Tool 실행 중 에러 발생: {e}")
-        # 에러 발생 시에도 Player가 멈추지 않도록 에러 메시지를 텍스트로 반환
-        return [types.TextContent(type="text", text=f"오류가 발생했습니다: {str(e)}")]
-
-# =================================================
-# 메인 실행 (Stdio 모드)
-# =================================================
-async def main():
-    logger.info("=== MCP 서버 시작 (Stdio Mode) ===")
-    try:
-        # Stdio 연결을 엽니다. 이 부분이 실행되면 FastMCP 로고가 뜨지 않습니다.
-        async with stdio_server() as (read_stream, write_stream):
-            logger.info("Stdio 연결 성공, 요청 대기 중...")
-            await app.run(
-                read_stream,
-                write_stream,
-                app.create_initialization_options()
-            )
-    except Exception as e:
-        logger.critical(f"서버 실행 중 치명적 오류: {e}")
-        raise
-
+# ===============================
+# 서버 실행 (PlayMCP 필수)
+# ===============================
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+    # ⚠️ /sse 경로 + SSE 방식
+    mcp.run(
+        transport="sse",
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8000)),
+        path="/sse"
+    )
