@@ -2,8 +2,10 @@
 from mcp.server.fastmcp import FastMCP
 import textwrap
 import os
+import uvicorn
 
 # 1. MCP 서버 초기화
+# FastMCP 서버 인스턴스를 생성합니다.
 mcp = FastMCP("SafeMove_RealEstate_Agent")
 
 # --- [Resource] 표준 전세계약서 지식 베이스 ---
@@ -58,15 +60,14 @@ def connect_kakao_services(property_price: int) -> str:
         [카카오뱅크 대출 심사 바로가기] | [카카오 T 이사 예약하기]
     """)
 
-# --- 서버 실행부 (Railway 환경에 최적화) ---
+# --- 서버 실행부 (Railway 환경 강제 고정) ---
 if __name__ == "__main__":
-    # Railway의 환경 변수(Variables) 탭에 등록된 값을 가져옵니다.
-    access_token = os.environ.get("APP_AUTH_KEY", "kakao_mcp_secret_2024")
+    # 1. 환경 변수에서 포트를 가져옵니다 (기본값 8000).
+    port_env = int(os.environ.get("PORT", 8000))
     
-    # Railway가 제공하는 PORT 환경 변수를 확인합니다.
-    current_port = os.environ.get("PORT", "8000")
-    print(f"SafeMove MCP Server Starting... (Target Port: {current_port})")
+    print(f"🚀 SafeMove MCP 서버가 구동됩니다. (Target Port: {port_env})")
     
-    # 핵심 수정: FastMCP의 run(transport="sse")은 PORT 환경 변수를 자동으로 감지합니다.
-    # 인자로 port를 직접 넘기면 에러가 발생하는 라이브러리 특성을 반영하여 수정했습니다.
-    mcp.run(transport="sse")
+    # 2. 핵심 수정: mcp.run() 대신 uvicorn을 직접 사용하여 Starlette 앱을 실행합니다.
+    # host를 "0.0.0.0"으로 설정해야 Railway 외부 주소와 연결됩니다.
+    # mcp.run()이 내부적으로 사용하는 Starlette 앱은 mcp.app으로 접근 가능합니다.
+    uvicorn.run(mcp.app, host="0.0.0.0", port=port_env)
