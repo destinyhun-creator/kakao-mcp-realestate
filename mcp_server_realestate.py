@@ -62,9 +62,11 @@ def connect_kakao_services(property_price: int) -> str:
 if __name__ == "__main__":
     # Railway의 환경 변수(Variables) 탭에 등록된 값을 가져옵니다.
     access_token = os.environ.get("APP_AUTH_KEY", "kakao_mcp_secret_2024")
-    port_number = int(os.environ.get("PORT", 8000))
     
-    print(f"SafeMove MCP Server Starting... (Port: {port_number})")
+    # Railway가 제공하는 PORT 환경 변수를 확인합니다.
+    current_port = os.environ.get("PORT", "8000")
+    print(f"SafeMove MCP Server Starting... (Target Port: {current_port})")
     
-    # 72번 줄 수정: host 인자를 제거하고 포트 번호를 정확히 전달합니다.
-    mcp.run(transport="sse", port=port_number)
+    # 핵심 수정: FastMCP의 run(transport="sse")은 PORT 환경 변수를 자동으로 감지합니다.
+    # 인자로 port를 직접 넘기면 에러가 발생하는 라이브러리 특성을 반영하여 수정했습니다.
+    mcp.run(transport="sse")
