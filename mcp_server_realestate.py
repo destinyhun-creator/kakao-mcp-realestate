@@ -9,7 +9,115 @@ load_dotenv()
 
 # =================================================
 # 1. MCP 서버 정의 (수정됨)
+# ============================import os
+import json
+import httpx
+from fastmcp import FastMCP
+
 # =================================================
+# MCP 서버 정의 (PlayMCP 호환)
+# =================================================
+mcp = FastMCP(
+    name="SafeMove Real Estate Agent",
+    version="1.0.0"
+)
+
+# =================================================
+# 헬퍼: LLM 호출 (데모 안전)
+# =================================================
+async def call_llm(system_prompt: str, user_prompt: str) -> str:
+    api_key = os.environ.get("OPENAI_API_KEY")
+
+    if not api_key:
+        return "[데모] API 키 미설정 상태입니다. 실제 연동 시 AI 분석이 제공됩니다."
+
+    async with httpx.AsyncClient() as client:
+        res = await client.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            },
+            timeout=15,
+        )
+        res.raise_for_status()
+        return res.json()["choices"][0]["message"]["content"]
+
+# =================================================
+# Tool 1: 매물 리스크 분석
+# =================================================
+@mcp.tool()
+async def analyze_property_risk(address: str, deposit_amount: int) -> str:
+    danger = "망원" in address or "빌라" in address
+
+    data = {
+        "address": address,
+        "deposit": f"{deposit_amount}만원",
+        "risk": "HIGH" if danger else "LOW",
+        "summary": (
+            "선순위 근저당 과다 + 위반건축물 가능성"
+            if danger else
+            "근저당 없음, 적법 건축물"
+        )
+    }
+
+    advice = await call_llm(
+        "너는 전세사기 예방 전문가다.",
+        f"{json.dumps(data, ensure_ascii=False)} 이 집에 계약해도 되는지 조언해줘."
+    )
+
+    data["expert_advice"] = advice
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+# =================================================
+# Tool 2: 계약서 독소조항 분석
+# =================================================
+@mcp.tool()
+async def analyze_contract_ocr(contract_text: str) -> str:
+    result = {
+        "toxic_clause_detected": "임대인 책임 면제" in contract_text,
+        "missing_clauses": [
+            "잔금일까지 권리변동 금지",
+            "전세보증금 반환보증 불가 시 계약 해제"
+        ]
+    }
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+# =================================================
+# Tool 3: 대출 + 이사 패키지
+# =================================================
+@mcp.tool()
+async def recommend_loan_and_moving(
+    annual_income: int,
+    target_deposit: int,
+    move_date: str
+) -> str:
+    result = {
+        "loan": "카카오뱅크 전월세보증금 대출",
+        "expected_limit": "최대 2억원",
+        "moving_cost_estimate": "약 45만원",
+        "move_date": move_date,
+        "services": ["카카오 T 이사", "입주청소 연계"]
+    }
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+# =================================================
+# 서버 실행
+# =================================================
+if __name__ == "__main__":
+    mcp.run(
+        transport="sse",
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8000))
+    )
+=====================
 # [수정] description과 port 인자를 제거했습니다. (초기화 시 지원하지 않음)
 mcp = FastMCP("SafeMove Real Estate Agent")
 
@@ -171,3 +279,4 @@ async def recommend_loan_and_moving(
 if __name__ == "__main__":
     # [수정] 포트 설정은 run 메서드에서 처리합니다.
     mcp.run(transport="sse", host="0.0.0.0", port=8000)
+
