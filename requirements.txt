@@ -1,2 +1,1 @@
-fastmcp>=0.4.1
-uvicorn
+mcp>=1.0.0
