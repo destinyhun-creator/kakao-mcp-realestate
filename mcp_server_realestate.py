@@ -2,14 +2,10 @@ from fastmcp import FastMCP
 import os
 
 # ------------------------------------------------------------------
-# 1. MCP 서버 초기화 (Metadata 강화)
+# 1. MCP 서버 초기화 (기본 설정)
 # ------------------------------------------------------------------
-# Player MCP가 서버를 인식할 때 name, version 정보를 확인합니다.
-mcp = FastMCP(
-    name="SafeMove Real Estate Agent",
-    version="1.0.0", # Player MCP를 위한 버전 명시
-    description="카카오 해커톤 출품작: 부동산 안전 거래 및 대출 상담 AI 에이전트"
-)
+# 오류 방지를 위해 가장 기본적인 형태로 초기화합니다.
+mcp = FastMCP("SafeMove Real Estate Agent")
 
 # ------------------------------------------------------------------
 # Tool 1: 부동산 등기부 리스크 분석
