@@ -1,2 +1,3 @@
+mcp
 fastapi
-uvicorn
+uvicornㅍ
