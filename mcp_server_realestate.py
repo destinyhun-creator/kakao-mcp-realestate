@@ -1,75 +1,162 @@
-from fastmcp import FastMCP
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
-# ✅ stateless 옵션 없음
-mcp = FastMCP(
-    name="SafeMove MCP Real Estate Agent"
-)
+app = FastAPI()
 
-# -------------------------------------------------
-# Tool 1: 부동산 위험도 분석 (데모)
-# -------------------------------------------------
-@mcp.tool()
-def analyze_real_estate(address: str, price: int) -> dict:
-    """
-    Analyze real estate risk (demo).
-    """
-    risk = "LOW"
-    reason = "No major risk detected."
+# -----------------------------
+# MCP Tool Definitions
+# -----------------------------
 
-    if price >= 300_000_000:
-        risk = "MEDIUM"
-        reason = "High price area, registry check recommended."
-
-    return {
-        "address": address,
-        "price": price,
-        "risk_level": risk,
-        "summary": reason,
-        "data_source": "demo",
+TOOLS = [
+    {
+        "name": "analyze_real_estate",
+        "description": "부동산 주소와 가격으로 전세 위험도를 분석합니다.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "address": {"type": "string"},
+                "price": {"type": "integer"}
+            },
+            "required": ["address", "price"]
+        }
+    },
+    {
+        "name": "contract_clause_check",
+        "description": "계약서 문구에서 전세사기 독소조항을 탐지합니다.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "contract_text": {"type": "string"}
+            },
+            "required": ["contract_text"]
+        }
+    },
+    {
+        "name": "move_and_loan_guide",
+        "description": "소득 기준 전세대출 가능 여부와 이사 체크리스트를 제공합니다.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "income": {"type": "integer"}
+            },
+            "required": ["income"]
+        }
     }
+]
 
-# -------------------------------------------------
-# Tool 2: 계약서 독소조항 점검 (데모)
-# -------------------------------------------------
-@mcp.tool()
-def contract_clause_check(contract_text: str) -> dict:
-    warnings = []
+# -----------------------------
+# MCP Endpoint
+# -----------------------------
 
-    if "책임 없음" in contract_text:
-        warnings.append("임대인 책임 면제 조항 의심")
+@app.post("/mcp")
+async def mcp_endpoint(req: Request):
+    body = await req.json()
+    method = body.get("method")
+    rpc_id = body.get("id")
 
-    if "보증금 반환 불가" in contract_text:
-        warnings.append("보증금 반환 관련 위험 문구")
+    # 1️⃣ initialize (필수)
+    if method == "initialize":
+        return JSONResponse({
+            "jsonrpc": "2.0",
+            "id": rpc_id,
+            "result": {
+                "serverInfo": {
+                    "name": "SafeMove MCP Real Estate Agent",
+                    "version": "1.0.0"
+                },
+                "capabilities": {
+                    "tools": {}
+                }
+            }
+        })
 
-    return {
-        "warnings": warnings,
-        "safe": len(warnings) == 0,
-        "note": "Demo legal analysis",
-    }
+    # 2️⃣ ping
+    if method == "ping":
+        return JSONResponse({
+            "jsonrpc": "2.0",
+            "id": rpc_id,
+            "result": {}
+        })
 
-# -------------------------------------------------
-# Tool 3: 전세대출 & 이사 가이드 (데모)
-# -------------------------------------------------
-@mcp.tool()
-def move_and_loan_guide(income: int) -> dict:
-    return {
-        "loan_available": income >= 30_000_000,
-        "bank": "KakaoBank (demo)",
-        "moving_checklist": [
-            "전입신고",
-            "확정일자 받기",
-            "전세보증보험 확인",
-            "이사 당일 계량기 촬영",
-        ],
-    }
+    # 3️⃣ tools/list
+    if method == "tools/list":
+        return JSONResponse({
+            "jsonrpc": "2.0",
+            "id": rpc_id,
+            "result": {
+                "tools": TOOLS
+            }
+        })
 
-# -------------------------------------------------
-# 🚀 Run (PlayMCP 인식 포인트)
-# -------------------------------------------------
-if __name__ == "__main__":
-    mcp.run(
-        transport="streamable-http",  # ⭐ 핵심
-        host="0.0.0.0",
-        port=8000,
-        path="/mcp",                  # ⭐ 핵심
-    )
+    # 4️⃣ tools/call
+    if method == "tools/call":
+        params = body.get("params", {})
+        name = params.get("name")
+        args = params.get("arguments", {})
+
+        # ---- Tool Logic ----
+        if name == "analyze_real_estate":
+            price = args["price"]
+            risk = "LOW"
+            reason = "No major risk detected."
+
+            if price >= 300_000_000:
+                risk = "MEDIUM"
+                reason = "High price area, registry check recommended."
+
+            result = {
+                "address": args["address"],
+                "price": price,
+                "risk_level": risk,
+                "summary": reason
+            }
+
+        elif name == "contract_clause_check":
+            text = args["contract_text"]
+            warnings = []
+
+            if "책임 없음" in text:
+                warnings.append("임대인 책임 면제 조항 의심")
+            if "보증금 반환 불가" in text:
+                warnings.append("보증금 반환 관련 위험 문구")
+
+            result = {
+                "warnings": warnings,
+                "safe": len(warnings) == 0
+            }
+
+        elif name == "move_and_loan_guide":
+            income = args["income"]
+            result = {
+                "loan_available": income >= 30_000_000,
+                "bank": "KakaoBank (demo)",
+                "moving_checklist": [
+                    "전입신고",
+                    "확정일자 받기",
+                    "전세보증보험 확인",
+                    "이사 당일 계량기 촬영"
+                ]
+            }
+
+        else:
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "error": {
+                    "code": -32601,
+                    "message": "Method not found"
+                }
+            })
+
+        return JSONResponse({
+            "jsonrpc": "2.0",
+            "id": rpc_id,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": str(result)
+                    }
+                ]
+            }
+        })
