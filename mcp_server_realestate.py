@@ -7,7 +7,7 @@ import json
 # ------------------------------------------------------------------------------
 # SafeMove (Kakao AI) Agent - PlayMCP Compatible Server
 # Spec: MCP Streamable HTTP (Stateless)
-# Version: 2024-11-05 (Latest Spec)
+# Version: 2025-03-26
 # ------------------------------------------------------------------------------
 
 app = FastAPI(title="SafeMove Agent")
@@ -227,3 +227,4 @@ if __name__ == "__main__":
     # PlayMCP 배포 환경에 맞게 포트 설정
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
