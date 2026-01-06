@@ -1,262 +1,140 @@
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse
-import uvicorn
-import os
-import json
+from mcp.server.fastmcp import FastMCP
 import logging
 
 # ------------------------------------------------------------------------------
-# SafeMove (Kakao AI) Agent - PlayMCP Compatible Server
-# Spec: MCP Streamable HTTP (Stateless)
-# Protocol Version: 2025-03-26 (PlayMCP Required)
+# SafeMove Estate (Kakao AI) Agent - Final Version
+# ------------------------------------------------------------------------------
+# [Mission]
+# 부동산 정보 비대칭 해결 및 원스톱 의사결정 지원
+#
+# [Service Flow]
+# 1. 계약 전: 공공데이터(등기부등본, 건축물대장) 실시간 융합 분석 -> 깡통전세/위반건축물 3초 진단
+# 2. 계약 시: OCR 기술로 계약서 내 독소조항(면책, 특약누락) 탐지 -> 법률적 보호 가이드 제공
+# 3. 계약 후: 사용자 연소득 기반 최적의 금융(카카오뱅크) & 이사(짐싸/카카오T) 원스톱 연결
+#
+# [Current Status]
+# - MVP 단계: 실제 API 연동 전, 시나리오 기반의 Mock Data로 동작합니다.
+# - 확장성: 향후 공공데이터포털, OCR 솔루션, 금융 API와 연동하여 실제 서비스화 가능
 # ------------------------------------------------------------------------------
 
-# 로깅 설정 (디버깅용)
+# 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("SafeMove")
 
-app = FastAPI(title="SafeMove Agent")
+# FastMCP 초기화 (Inspector 호환성 100% 보장)
+mcp = FastMCP("SafeMove Estate")
 
-# [Tools Definition]
-TOOLS = [
-    {
-        "name": "analyze_real_estate_risk",
-        "description": "주소와 보증금을 입력받아 등기부등본 및 건축물대장 데이터를 기반으로 부동산 위험도(깡통전세, 위반건축물, 신탁등기 등)를 정밀 분석합니다.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "address": {"type": "string", "description": "매물 주소 (예: 망원동 빌라)"},
-                "deposit_amount": {"type": "integer", "description": "보증금 액수 (단위: 만원)"}
-            },
-            "required": ["address", "deposit_amount"]
-        }
-    },
-    {
-        "name": "check_contract_toxic_clauses",
-        "description": "계약서 텍스트를 분석하여 세입자에게 불리한 독소조항(면책, 반환 지연)이나 필수 특약(대출 반려 시 반환) 누락을 탐지합니다.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "contract_text": {"type": "string", "description": "계약서 전체 텍스트 내용"}
-            },
-            "required": ["contract_text"]
-        }
-    },
-    {
-        "name": "recommend_finance_and_living",
-        "description": "사용자의 연소득 정보를 바탕으로 최적의 카카오뱅크 전세대출 상품을 추천하고, 맞춤형 이사 서비스 견적을 제안합니다.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "annual_income": {"type": "integer", "description": "연소득 (단위: 만원)"}
-            },
-            "required": ["annual_income"]
-        }
-    }
-]
-
-@app.post("/mcp")
-async def handle_mcp_request(request: Request):
+# ------------------------------------------------------------------------------
+# 1. [계약 전] 권리 분석 및 깡통전세 진단 도구
+# ------------------------------------------------------------------------------
+@mcp.tool()
+def analyze_public_data_risk(address: str, price_amount: int) -> str:
     """
-    Streamable HTTP Endpoint for MCP.
-    Handles JSON-RPC 2.0 requests via POST.
-    Ensures Content-Type is application/json.
+    [계약 전] 사용자가 입력한 매물 주소/URL을 기반으로 대법원 등기부등본과 건축물대장 공공데이터를 실시간 융합 분석합니다.
+    '깡통전세' 여부 및 권리 분석 위험도를 3초 만에 진단하여 의사결정을 돕습니다.
+    
+    Args:
+        address: 매물 주소 (예: 서울 망원동 00빌라)
+        price_amount: 전세 보증금 (단위: 원 또는 만원, 예: 30000)
     """
-    try:
-        # JSON-RPC 요청 파싱 (파싱 실패 시 -32700 에러 처리)
-        try:
-            payload = await request.json()
-        except Exception:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {"code": -32700, "message": "Parse error"}
-                }
-            )
-
-        method = payload.get("method")
-        req_id = payload.get("id")
-        params = payload.get("params", {})
-        
-        logger.info(f"Received Method: {method}")
-
-        # ----------------------------------------------------------------------
-        # 1. Initialize (Handshake)
-        # ----------------------------------------------------------------------
-        if method == "initialize":
-            return JSONResponse(content={
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {
-                    "protocolVersion": "2025-03-26",  # PlayMCP 요구 사항 충족 (선언)
-                    "capabilities": {
-                        # Stateless 서버이므로 listChanged 등은 지원하지 않음을 명시
-                        "tools": {"listChanged": False},
-                        "resources": {"listChanged": False},
-                        "prompts": {"listChanged": False},
-                        "logging": {} 
-                    },
-                    "serverInfo": {
-                        "name": "SafeMove Agent",
-                        "version": "1.0.3"
-                    }
-                }
-            })
-
-        # ----------------------------------------------------------------------
-        # 2. Notifications (initialized)
-        # - Streamable HTTP에서는 Notification에 대해 200 OK만 반환 (Body 없음)
-        # ----------------------------------------------------------------------
-        if method == "notifications/initialized":
-            # 2024-11-05 스펙: Initialized 알림 수신 시 아무 작업도 하지 않고 성공 응답
-            return Response(status_code=200)
-
-        # ----------------------------------------------------------------------
-        # 3. Ping (Health Check)
-        # ----------------------------------------------------------------------
-        if method == "ping":
-            return JSONResponse(content={
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {}
-            })
-
-        # ----------------------------------------------------------------------
-        # 4. Tools List
-        # ----------------------------------------------------------------------
-        if method == "tools/list":
-            return JSONResponse(content={
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {
-                    "tools": TOOLS
-                }
-            })
-
-        # ----------------------------------------------------------------------
-        # 5. Tools Call
-        # ----------------------------------------------------------------------
-        if method == "tools/call":
-            tool_name = params.get("name")
-            args = params.get("arguments", {})
-            result_content = []
-            is_error = False
-            
-            try:
-                # [시나리오 1] 부동산 위험도 분석
-                if tool_name == "analyze_real_estate_risk":
-                    addr = args.get("address", "")
-                    deposit = args.get("deposit_amount", 0)
-                    
-                    if "망원" in addr:
-                        text = (
-                            f"🚨 [위험 감지] '{addr}' 매물 분석 결과\n"
-                            f"- ⚠️ 선순위 근저당 설정액이 과다합니다 (매매가 대비 80% 초과).\n"
-                            f"- ⚠️ 건축물대장상 '위반건축물(불법 증축)' 등재가 확인되었습니다.\n"
-                            f"👉 결론: 전세사기 고위험군입니다. 계약을 권장하지 않습니다."
-                        )
-                    elif deposit >= 50000:
-                        text = (
-                            f"⚠️ [주의 필요] '{addr}' (보증금 {deposit}만원)\n"
-                            f"- '신탁등기' 상태의 매물입니다.\n"
-                            f"- 신탁원부를 발급받아 신탁사의 동의 여부를 반드시 확인해야 보증금을 보호받을 수 있습니다.\n"
-                        )
-                    else:
-                        text = (
-                            f"✅ [안전 매물] '{addr}' 분석 결과\n"
-                            f"- 등기부등본상 권리 관계가 깨끗합니다.\n"
-                            f"- 건축물대장상 위반 사항이 없습니다.\n"
-                            f"👉 결론: 안심전세 대출 및 보증보험 가입이 가능합니다."
-                        )
-                    result_content = [{"type": "text", "text": text}]
-
-                # [시나리오 2] 계약서 독소조항 검토
-                elif tool_name == "check_contract_toxic_clauses":
-                    content = args.get("contract_text", "")
-                    warnings = []
-                    if "책임 없음" in content or "면책" in content:
-                        warnings.append("- ⛔ '임대인 면책' 조항: 시설물 파손 시 임대인이 책임지지 않는다는 내용은 불리합니다.")
-                    if "반환 불가" in content or "새 세입자" in content:
-                        warnings.append("- ⛔ '보증금 반환 지연': 새 세입자가 들어와야 보증금을 준다는 특약은 법적 효력이 약하며 위험합니다.")
-                    if "대출" not in content:
-                        warnings.append("- ℹ️ '필수 특약 누락': 전세자금대출 반려 시 계약금을 즉시 반환한다는 특약이 없습니다.")
-                    
-                    if warnings:
-                        msg = "🚨 계약서 정밀 분석 결과, 수정이 필요한 항목이 발견되었습니다:\n" + "\n".join(warnings)
-                    else:
-                        msg = "✅ 계약서 분석 완료. 표준 임대차 계약서를 준수한 안전한 계약입니다."
-                    result_content = [{"type": "text", "text": msg}]
-
-                # [시나리오 3] 금융 및 이사 추천
-                elif tool_name == "recommend_finance_and_living":
-                    income = args.get("annual_income", 0)
-                    loan_msg = ""
-                    if income < 3500:
-                        loan_msg = "🔹 [대출] 중소기업취업청년 전월세보증금대출 (연 1.2%~)"
-                    elif income < 7000:
-                        loan_msg = "🔹 [대출] 카카오뱅크 청년 전월세보증금 대출 (연 3.4%~, 90% 한도)"
-                    else:
-                        loan_msg = "🔹 [대출] 카카오뱅크 일반 전월세보증금 대출 (최대 2.22억원)"
-                    
-                    msg = (
-                        f"💰 연소득 {income}만원 기준 맞춤 솔루션입니다.\n"
-                        f"{loan_msg}\n\n"
-                        f"🚚 [카카오 T 이사] 추천 견적\n"
-                        f"- 서비스: 반포장 이사 (1인 가구 최적)\n"
-                        f"- 예상 비용: 35~45만원\n"
-                        f"- 혜택: SafeMove 제휴 10% 청소 할인 쿠폰 발급됨"
-                    )
-                    result_content = [{"type": "text", "text": msg}]
-
-                else:
-                    # 해당 Tool이 없는 경우 (-32601)
-                    return JSONResponse(content={
-                        "jsonrpc": "2.0",
-                        "id": req_id,
-                        "error": {"code": -32601, "message": "Method not found"}
-                    })
-            
-            except Exception as e:
-                # 내부 로직 에러 (-32603)
-                logger.error(f"Tool execution error: {e}")
-                return JSONResponse(content={
-                    "jsonrpc": "2.0",
-                    "id": req_id,
-                    "error": {"code": -32603, "message": f"Internal error: {str(e)}"}
-                })
-
-            # 정상 응답
-            return JSONResponse(content={
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {
-                    "content": result_content,
-                    "isError": is_error
-                }
-            })
-
-        # 알 수 없는 메서드 요청 (-32601)
-        return JSONResponse(content={
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "error": {"code": -32601, "message": "Method not found"}
-        })
-
-    except Exception as e:
-        # 기타 서버 에러
-        logger.error(f"Server error: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {"code": -32603, "message": str(e)}
-            }
+    logger.info(f"🔍 권리 분석 요청 - 주소: {address}, 금액: {price_amount}")
+    
+    # [Scenario A] 위험 매물: 서울 망원동 3억 빌라
+    if "망원" in address:
+        return (
+            f"🚨 **[SafeMove 위험 경고]**\n"
+            f"주소: {address} | 보증금: {price_amount}만원\n\n"
+            f"1️⃣ **공공데이터 융합 분석 결과 (3초 소요)**\n"
+            f"   - 📜 **등기부등본**: '을구'에 선순위 근저당 **2억 5천만원**이 설정되어 있습니다. (위험)\n"
+            f"   - 🏗️ **건축물대장**: 5층 베란다 불법 확장으로 **'위반건축물'** 등재 상태입니다.\n\n"
+            f"2️⃣ **SafeMove AI 정밀 진단: '깡통전세 고위험군'**\n"
+            f"   - 📉 **전세가율 위험**: 매매가 대비 전세가율이 90%를 초과하여 경매 시 보증금 회수가 어렵습니다.\n"
+            f"   - 🚫 **보증보험 불가**: 위반건축물은 HUG 전세보증금반환보증 가입이 거절됩니다.\n\n"
+            f"💡 **행동 가이드**: \n"
+            f"   \"중개사에게 보증보험 가입 가능 여부를 특약으로 넣어달라고 요청하세요. 거절 시 계약하지 않는 것을 강력히 권장합니다.\""
+        )
+    
+    # [Scenario B] 안전 매물: 그 외
+    else:
+        return (
+            f"✅ **[SafeMove 안전 진단]**\n"
+            f"주소: {address} | 분석 결과: **안전**\n\n"
+            f"1️⃣ **공공데이터 조회 결과**\n"
+            f"   - 📜 **등기부등본**: 소유권 이외의 권리 사항(근저당, 압류 등)이 없는 '깨끗한 물건'입니다.\n"
+            f"   - 🏗️ **건축물대장**: 위반 사항이 발견되지 않았습니다.\n\n"
+            f"💡 **행동 가이드**: \n"
+            f"   안심하고 가계약을 진행하셔도 좋습니다. 송금 전 계좌주가 소유자와 일치하는지만 한 번 더 확인하세요."
         )
 
+# ------------------------------------------------------------------------------
+# 2. [계약 시] OCR 계약서 독소조항 탐지 도구
+# ------------------------------------------------------------------------------
+@mcp.tool()
+def check_contract_ocr_legal(contract_content: str) -> str:
+    """
+    [계약 시] OCR(광학문자인식) 기술로 계약서 사진/텍스트를 분석하여 임차인에게 불리한 독소조항(면책, 특약 누락)을 탐지합니다.
+    주택임대차보호법 판례 데이터베이스를 기반으로 법률적 수정 가이드를 제공합니다.
+    
+    Args:
+        contract_content: 계약서 이미지에서 추출한 텍스트 또는 질문 내용
+    """
+    logger.info("📸 OCR 계약서 법률 검토 시작")
+    
+    # [Scenario] 독소조항 및 특약 누락 발견
+    return (
+        f"📸 **[SafeMove OCR 법률 검토 결과]**\n"
+        f"입력된 계약서 내용을 주택임대차보호법 기준으로 분석했습니다.\n\n"
+        f"⚠️ **탐지된 독소조항 (임차인 주의!)**\n"
+        f"   1. **면책 조항 발견**: \"곰팡이, 누수 등 시설물 파손에 대해 임대인은 일체 책임을 지지 않는다.\"\n"
+        f"      👉 **법률 해석**: 주요 시설물의 수선 의무는 법적으로 임대인에게 있습니다. 이 조항은 무효가 될 소지가 큽니다.\n\n"
+        f"ℹ️ **필수 특약 누락 알림**\n"
+        f"   - \"전세자금대출 미승인 시 계약금을 조건 없이 전액 반환한다\"는 조항이 빠져 있습니다.\n\n"
+        f"🗣️ **중개사 대응 스크립트**:\n"
+        f"   \"법무사 자문 결과, 수선 의무 면책 조항은 삭제가 필요하고, 대출 불가 시 반환 특약은 꼭 넣어주셔야 계약 진행이 가능하다고 전해주세요.\""
+    )
+
+# ------------------------------------------------------------------------------
+# 3. [계약 후] 금융 & 이사 원스톱 매칭 도구
+# ------------------------------------------------------------------------------
+@mcp.tool()
+def recommend_kakaobank_and_moving(annual_income: int) -> str:
+    """
+    [계약 후] 사용자의 연소득 데이터를 기반으로 최적의 카카오뱅크 전세대출 상품을 매칭합니다.
+    또한, 입주 날짜와 짐 규모에 맞춘 맞춤형 이사 서비스(카카오 T 이사) 견적을 원스톱으로 연결합니다.
+    
+    Args:
+        annual_income: 연소득 (단위: 만원)
+    """
+    logger.info(f"💰 금융/이사 매칭 요청 - 연소득: {annual_income}만원")
+    
+    # [Scenario] 연봉 4천만원 (청년 전월세 대상)
+    if 3000 <= annual_income <= 5000:
+        return (
+            f"💰 **[SafeMove 금융 & 생활 원스톱 솔루션]**\n"
+            f"고객님의 연소득 {annual_income}만원 데이터에 최적화된 결과입니다.\n\n"
+            f"🏦 **추천 대출: 카카오뱅크 청년 전월세보증금 대출**\n"
+            f"   - **예상 금리**: 연 3.4% ~ 3.6% (우대금리 적용 시)\n"
+            f"   - **한도**: 보증금의 90%까지 (최대 2억원)\n"
+            f"   - **장점**: 복잡한 서류 제출 없이 모바일로 1분 만에 한도 조회가 가능합니다.\n\n"
+            f"🚚 **이사 추천: 카카오 T 이사 (반포장)**\n"
+            f"   - **예상 견적**: 450,000원 (투룸/1.5룸 기준)\n"
+            f"   - **SafeMove 혜택**: 앱을 통해 계약 시 '입주청소 2만원 할인 쿠폰'이 즉시 발급됩니다.\n\n"
+            f"👉 **[원스톱 실행하기]**\n"
+            f"   버튼을 누르면 카카오뱅크 앱으로 연결되어 대출 한도를 즉시 확인하실 수 있습니다."
+        )
+    else:
+        # 그 외 소득 구간
+        return (
+            f"💰 **[SafeMove 금융 솔루션]**\n"
+            f"연소득 {annual_income}만원 구간은 '카카오뱅크 일반 전월세보증금 대출' 대상입니다.\n"
+            f"최대 80% 한도 내에서 최저 금리 3.8%부터 이용 가능합니다.\n"
+            f"이사 견적은 '짐싸' 파트너를 통해 비교 견적을 받아보시길 추천합니다."
+        )
+
+# ------------------------------------------------------------------------------
+# Main Entry Point
+# ------------------------------------------------------------------------------
 if __name__ == "__main__":
-    # PlayMCP 배포 환경에 맞게 포트 설정
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    # Inspector 연결을 위해 SSE(Server-Sent Events) 모드로 실행합니다.
+    # 실행 명령: npx @modelcontextprotocol/inspector dev safemove_agent.py
+    mcp.run(transport='sse')
